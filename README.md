@@ -13,7 +13,8 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
 
 - u_rate = u0 × (V×D)
 - U_t = U_{t-1} + u_rate × (1 − U_{t-1}/Umax)
-- Smax(t) = Smax_base + ΔSmax × (U_t/Umax)
+- Smax(t) = Smax_base + ΔSmax × (V×D)^γ × (U_t/Umax)
+- Smax_cap（理論上限）= Smax_base + ΔSmax × (V×D)^γ
 
 ## 各パラメータの日本語定義
 **N（試行回数 / Trials）**
@@ -44,6 +45,10 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
 - **「数式が唯一の真実」ではない。**  
   現場のデータで v0 や u0 を再推定し、学習設計に落とし込むための思考補助です。
 
+## 3本線の比較（10年スケールでの見せ方）
+「何もしない（No system）→ 訓練導入（Training）→ DoJo最適化（Optimized）」の3本線を並べ、  
+10年（520週）での差が直感的に伝わるようにしています。
+
 ## Option A (recommended): Streamlit (web UI)
 1) Install deps:
    ```bash
@@ -71,11 +76,15 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
    ```
 2) Generate a single sweep:
    ```bash
-   python scripts/export_gifs.py --preset dojo --param N --min 0.2 --max 0.9 --frames 30 --fps 10 --out out/gifs
+   python scripts/export_gifs.py --preset optimized --param N --min 0.2 --max 0.9 --frames 30 --fps 10 --out out/gifs
    ```
 3) Generate all parameters at once:
    ```bash
-   python scripts/export_gifs.py --all --preset dojo --frames 30 --fps 10 --out out/gifs
+   python scripts/export_gifs.py --all --preset optimized --frames 30 --fps 10 --out out/gifs
+   ```
+4) Compare 3 scenarios in one GIF:
+   ```bash
+   python scripts/export_gifs.py --param V --compare3 --out out/gifs
    ```
 
 ## Notes
