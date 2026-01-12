@@ -6,7 +6,8 @@
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button, CheckButtons
 
-from core.growth_model import PARAM_KEYS, simulate, weeks_to_reach
+from core.constants import PARAM_KEYS
+from core.growth_model import simulate, weeks_to_reach
 
 # -----------------------------
 # Defaults

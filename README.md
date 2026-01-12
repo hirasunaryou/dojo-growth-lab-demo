@@ -56,6 +56,10 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
    ```bash
    streamlit run growth_lab_streamlit.py
    ```
+3) Research Progress Mode:
+   - Sidebar の **Research Progress Mode** を ON にすると、年次で N/F/D/V/R が改善するシミュレーションに切り替わります。
+   - Continuous: 同一人物が年々アップデートされるシステムで伸びる曲線
+   - Cohort: 入社年ごとの「Veteran 到達までの年数」比較
 
 ## Option B (no extra deps): Matplotlib sliders (desktop window)
 1) Install deps:
@@ -83,6 +87,11 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
 4) Compare 3 lines (No system / Training / Optimized) in one GIF:
    ```bash
    python scripts/export_gifs.py --compare3 --preset optimized --param V --frames 30 --fps 10 --out out/gifs
+   ```
+5) Research Progress Mode (Continuous / Cohort):
+   ```bash
+   python scripts/export_gifs.py --mode research_progress --years 0 3 --frames 30 --fps 10 --out out/gifs
+   python scripts/export_gifs.py --mode research_progress --research-view cohort --years 0 3 --frames 30 --fps 10 --out out/gifs
    ```
 
 ## Notes
