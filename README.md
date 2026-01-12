@@ -82,6 +82,7 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
    ```bash
    pip install -r requirements_basic.txt
    ```
+   - GIF出力には imageio/Pillow が必要です（requirements_basic.txt に含まれています）。
 2) Generate a single sweep:
    ```bash
    python scripts/export_gifs.py --preset optimized --param N --min 0.2 --max 0.9 --frames 30 --fps 10 --out out/gifs
