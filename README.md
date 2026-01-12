@@ -4,6 +4,8 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
 数式と意味を固定で表示し、**非エンジニアにも説明できる**ことを目的にしています。
 比較は「何もしない（No system）→ 訓練導入（Training）→ DoJo最適化（Optimized）」の
 3本線で示し、**10年スケール（520週）**でゆっくりした成長の差を見せる設計です。
+各線の N/F/D/V/R と派生指標（v, Smax_cap）を表で常時表示し、
+ボトルネックや寄与分解で「どこを重視すべきか」を議論できるようにしています。
 
 ## モデルの概要（数式）
 **成長モデル**
@@ -60,6 +62,10 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
    - Sidebar の **Research Progress Mode** を ON にすると、年次で N/F/D/V/R が改善するシミュレーションに切り替わります。
    - Continuous: 同一人物が年々アップデートされるシステムで伸びる曲線
    - Cohort: 入社年ごとの「Veteran 到達までの年数」比較
+4) Scenario Parameter Table:
+   - 3シナリオの N/F/D/V/R と v, Smax_cap を常時表示
+   - 最小値（ボトルネック）のハイライトと改善優先候補のテキスト
+   - No system を基準にした v 寄与分解の棒グラフ
 
 ## Option B (no extra deps): Matplotlib sliders (desktop window)
 1) Install deps:
@@ -88,6 +94,7 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
    ```bash
    python scripts/export_gifs.py --compare3 --preset optimized --param V --frames 30 --fps 10 --out out/gifs
    ```
+   - 各フレームに 3シナリオの N/F/D/V/R と v/Smax_cap を表示（PPT貼り付け用）
 5) Research Progress Mode (Continuous / Cohort):
    ```bash
    python scripts/export_gifs.py --mode research_progress --years 0 3 --frames 30 --fps 10 --out out/gifs
