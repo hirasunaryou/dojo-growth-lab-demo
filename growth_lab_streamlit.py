@@ -3,53 +3,13 @@
 # Interactive N-F-D-V-R simulator (Streamlit)
 # Run: streamlit run growth_lab_streamlit.py
 
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
+from core.growth_model import PARAM_KEYS, simulate, weeks_to_reach
+
 st.set_page_config(page_title="DoJo Growth Lab", layout="wide")
-
-# -----------------------------
-# Core model
-# -----------------------------
-def v_from_params(p: dict, v0: float = 0.25) -> float:
-    # Geometric mean keeps scale stable and preserves multiplicative intuition
-    prod = p["N"] * p["F"] * p["D"] * p["V"] * p["R"]
-    return v0 * (prod ** (1/5))
-
-def simulate(p: dict, T: int, S0: float, v0: float, Smax_base: float, delta_Smax: float,
-             Umax: float, u0: float, enable_frontier: bool):
-    weeks = np.arange(T + 1)
-    v = v_from_params(p, v0=v0)
-
-    S = np.zeros(T + 1)
-    U = np.zeros(T + 1)
-    Smax = np.zeros(T + 1)
-    S[0] = S0
-
-    for t in range(T + 1):
-        # Frontier unlock
-        if enable_frontier and t > 0:
-            u_rate = u0 * (p["V"] * p["D"])
-            U[t] = U[t-1] + u_rate * (1 - U[t-1] / Umax)  # saturating growth
-        else:
-            U[t] = 0.0
-
-        Smax[t] = Smax_base + (delta_Smax * (U[t] / Umax) if enable_frontier else 0.0)
-
-        # Skill update (discrete-time form)
-        if t < T:
-            S[t+1] = S[t] + v * (Smax[t] - S[t])
-
-    df = pd.DataFrame({"week": weeks, "S": S, "Smax": Smax, "U": U})
-    return df, v
-
-def weeks_to_reach(S_series: np.ndarray, threshold: float):
-    idx = np.argmax(S_series >= threshold)
-    if S_series[idx] < threshold:
-        return None
-    return int(idx)
 
 # -----------------------------
 # Sidebar controls
@@ -85,12 +45,20 @@ Smax_base = st.sidebar.slider("Smax base", 50.0, 100.0, 80.0, 1.0)
 delta_Smax = st.sidebar.slider("Smax uplift (max)", 0.0, 30.0, 12.0, 1.0)
 Umax = st.sidebar.slider("Umax", 1.0, 30.0, 10.0, 1.0)
 u0 = st.sidebar.slider("u0 (unlock speed)", 0.1, 5.0, 2.0, 0.1)
+fix_axes = st.sidebar.toggle("軸固定 (Fix axes)", value=True)
 
 # -----------------------------
 # Run two scenarios: baseline vs current
 # -----------------------------
-df_base, v_base = simulate(baseline, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
-df_cur, v_cur   = simulate(p,       T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+base_result = simulate(baseline, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+cur_result = simulate(p, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+
+df_base = pd.DataFrame(
+    {"week": base_result.week, "S": base_result.S, "Smax": base_result.Smax, "U": base_result.U}
+)
+df_cur = pd.DataFrame(
+    {"week": cur_result.week, "S": cur_result.S, "Smax": cur_result.Smax, "U": cur_result.U}
+)
 
 # -----------------------------
 # Summary metrics
@@ -110,13 +78,43 @@ def summarize(df, v):
         f"Weeks to reach {threshold}": w_thr,
     }
 
-sum_base = summarize(df_base, v_base)
-sum_cur  = summarize(df_cur,  v_cur)
+sum_base = summarize(df_base, base_result.v)
+sum_cur = summarize(df_cur, cur_result.v)
 
 # -----------------------------
 # Layout
 # -----------------------------
 st.title("DoJo Growth Lab — Move N-F-D-V-R and *see* growth")
+# Always-visible formulas for quick explanation in workshops.
+st.latex(r"\frac{dS}{dt} = v \times (S_{max} - S)")
+st.latex(r"v = v_0 \times (N \times F \times D \times V \times R)^{1/5}")
+st.latex(
+    r"u\_rate = u_0 \times (V \times D)"
+    r",\;\; U_t = U_{t-1} + u\_rate \times (1 - U_{t-1}/U_{max})"
+    r",\;\; S_{max}(t) = S_{max\_base} + \Delta S_{max} \times (U_t/U_{max})"
+)
+# Show the current slider-derived v and Smax ceiling span.
+st.write(
+    f"現在の v（成長速度）= **{cur_result.v:.3f} / week** ｜ "
+    f"Smax の上限幅 = **{Smax_base:.1f} → {Smax_base + delta_Smax:.1f}**"
+)
+
+with st.expander("パラメータの説明（日本語ガイド / JP Guide）", expanded=True):
+    st.markdown(
+        """
+        - **N（試行回数 / Trials）**：練習ループの回転数。AIロールプレイ等で増やせる。  
+          **N↑ → 伸び始めが速くなる。**
+        - **F（フィードバック密度 / Feedback）**：即時・定量・ブレないFB（ルーブリック採点等）で増やせる。  
+          **F↑ → 伸びの角度が安定して上がる。**
+        - **D（深さ / Depth）**：難易度/複雑性。背伸び可能な領域を狙う。  
+          **D↑ → 学習の上限（Smax）が押し上がる。**
+        - **V（多様性 / Variety）**：ケース分布の広さ。長尾・未知パターン・環境変化を含める。  
+          **V↑ → Frontier Unlock が進み、Smaxが上がりやすい。**
+        - **R（反復 / Repetition）**：弱点に戻って再挑戦できる設計（復習タイミング・再出題）。  
+          **R↑ → 学習が収束しやすくなる。**
+        - **V × D**：Frontier Unlock を押し上げ、**Smaxが伸びる**（上限の拡張）。
+        """
+    )
 
 colA, colB = st.columns([2, 1])
 
@@ -130,6 +128,9 @@ with colA:
     plt.ylabel("Skill S")
     plt.title("Skill curve S(t)")
     plt.legend()
+    if fix_axes:
+        plt.xlim(0, T)
+        plt.ylim(0, 100)
     st.pyplot(fig)
 
     fig2 = plt.figure()
@@ -139,6 +140,9 @@ with colA:
     plt.ylabel("Smax (ceiling)")
     plt.title("Ceiling Smax(t)")
     plt.legend()
+    if fix_axes:
+        plt.xlim(0, T)
+        plt.ylim(Smax_base, Smax_base + delta_Smax)
     st.pyplot(fig2)
 
 with colB:
@@ -153,11 +157,11 @@ with colB:
     # Increase each param by +0.10 (capped at 1.0) and measure delta in S@end
     sens_rows = []
     base_S_end = sum_cur["S @ end"]
-    for key in ["N", "F", "D", "V", "R"]:
+    for key in PARAM_KEYS:
         p2 = p.copy()
         p2[key] = min(1.0, p2[key] + 0.10)
-        df2, v2 = simulate(p2, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
-        delta = float(df2["S"].iloc[-1] - base_S_end)
+        sim2 = simulate(p2, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+        delta = float(sim2.S[-1] - base_S_end)
         sens_rows.append({"param": key, "ΔS@end (+0.10)": delta})
     sens = pd.DataFrame(sens_rows).sort_values("ΔS@end (+0.10)", ascending=False)
     st.dataframe(sens)
