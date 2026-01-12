@@ -3,6 +3,7 @@
 # Run: streamlit run growth_lab_streamlit.py
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -14,7 +15,8 @@ from core.growth_model import (
     v_from_params,
     weeks_to_reach,
 )
-from core.roadmap import TRAIN_PARAMS, TARGET_PARAMS, build_year_table, interpolate_params
+from core.roadmap import TARGET_PARAMS, build_year_table, interpolate_params
+from core.scenarios import build_scenarios
 
 st.set_page_config(page_title="DoJo Growth Lab", layout="wide")
 
@@ -23,8 +25,6 @@ st.set_page_config(page_title="DoJo Growth Lab", layout="wide")
 # -----------------------------
 st.sidebar.title("Controls")
 # Fixed reference lines (adjustable later).
-NO_SYSTEM = {"N": 0.25, "F": 0.15, "D": 0.20, "V": 0.10, "R": 0.15}
-TRAINING = TRAIN_PARAMS.copy()
 TARGET = TARGET_PARAMS.copy()
 
 research_mode = st.sidebar.toggle("Research Progress Mode", value=False)
@@ -39,6 +39,13 @@ p = {
     "V": st.sidebar.slider("V (Variety)", 0.0, 1.0, TARGET["V"], 0.01, disabled=sliders_disabled),
     "R": st.sidebar.slider("R (Repetition)", 0.0, 1.0, TARGET["R"], 0.01, disabled=sliders_disabled),
 }
+
+# Scenario configs (shared labels/colors across UI + exports).
+scenarios = build_scenarios(optimized_params=p)
+scenario_lookup = {scenario.name: scenario for scenario in scenarios}
+no_params = scenario_lookup["No system"].params
+training_params = scenario_lookup["Training system"].params
+optimized_params = scenario_lookup["Optimized"].params
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Model knobs (advanced)")
@@ -55,6 +62,7 @@ gamma = st.sidebar.slider("gamma (frontier strength)", 0.1, 1.0, 0.5, 0.05)
 Umax = st.sidebar.slider("Umax", 1.0, 30.0, 10.0, 1.0)
 u0 = st.sidebar.slider("u0 (unlock speed)", 0.1, 5.0, 2.0, 0.1)
 fix_axes = st.sidebar.toggle("軸固定 (Fix axes)", value=True)
+show_params_on_plot = st.sidebar.checkbox("Show scenario params on plot", value=False)
 
 if research_mode:
     st.sidebar.markdown("---")
@@ -89,6 +97,49 @@ def summarize(df, result):
         f"Weeks to reach {threshold}": w_thr,
         f"Years to reach {threshold}": years_thr,
     }
+
+
+def build_scenario_table(
+    scenarios,
+    results,
+    threshold_value: float,
+) -> pd.DataFrame:
+    """Build a scenario parameter table for always-visible comparison."""
+    rows = []
+    for scenario in scenarios:
+        result = results[scenario.name]
+        w_thr = weeks_to_reach(result.S, threshold_value)
+        years_thr = None if w_thr is None else w_thr / 52
+        # Keep columns aligned with the teaching goals: inputs -> derived metrics -> outcomes.
+        row = {
+            "Scenario": scenario.name,
+            "N": scenario.params["N"],
+            "F": scenario.params["F"],
+            "D": scenario.params["D"],
+            "V": scenario.params["V"],
+            "R": scenario.params["R"],
+            "V*D": scenario.params["V"] * scenario.params["D"],
+            "v": result.v,
+            "Smax_cap": result.Smax_cap,
+            "S_end": float(result.S[-1]),
+            "Smax_end": float(result.Smax[-1]),
+            "years_to_threshold": years_thr,
+        }
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def highlight_bottleneck(row: pd.Series) -> list[str]:
+    """Highlight the minimum N/F/D/V/R per scenario for bottleneck insight."""
+    keys = ["N", "F", "D", "V", "R"]
+    min_value = row[keys].min()
+    styles = []
+    for key in row.index:
+        if key in keys and row[key] == min_value:
+            styles.append("background-color: #ffe8e6")
+        else:
+            styles.append("")
+    return styles
 
 
 def cohort_years_to_reach(params: dict[str, float]) -> float | None:
@@ -131,19 +182,73 @@ with st.expander("パラメータの説明（日本語ガイド / JP Guide）", 
         """
     )
 
+# -----------------------------
+# Scenario parameter table (always visible)
+# -----------------------------
+# We precompute the three core scenarios so the table is consistent across modes.
+scenario_results = {
+    scenario.name: simulate(
+        scenario.params, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
+    )
+    for scenario in scenarios
+}
+scenario_table = build_scenario_table(scenarios, scenario_results, threshold)
+scenario_table = scenario_table[
+    [
+        "Scenario",
+        "N",
+        "F",
+        "D",
+        "V",
+        "R",
+        "V*D",
+        "v",
+        "Smax_cap",
+        "S_end",
+        "Smax_end",
+        "years_to_threshold",
+    ]
+]
+st.subheader("Scenario Parameter Table (N-F-D-V-R + derived metrics)")
+st.dataframe(
+    scenario_table.set_index("Scenario")
+    .style.apply(highlight_bottleneck, axis=1)
+    .format(precision=3),
+    use_container_width=True,
+)
+
+# Bottleneck text guidance for workshop facilitation.
+st.subheader("改善優先候補（ボトルネック）")
+for _, row in scenario_table.iterrows():
+    min_value = min(row["N"], row["F"], row["D"], row["V"], row["R"])
+    min_params = [key for key in ["N", "F", "D", "V", "R"] if row[key] == min_value]
+    st.write(f"{row['Scenario']}: 改善優先候補 = {', '.join(min_params)}")
+
+# Contribution chart (optional but recommended): log-decomposed v uplift vs No system.
+st.subheader("v寄与の分解（No system 基準）")
+ref_row = scenario_table.loc[scenario_table["Scenario"] == "No system"].iloc[0]
+for target_label in ["Training system", "Optimized"]:
+    target_row = scenario_table.loc[scenario_table["Scenario"] == target_label].iloc[0]
+    contrib_keys = ["N", "F", "D", "V", "R"]
+    ref_vals = np.clip(ref_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
+    target_vals = np.clip(target_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
+    contrib = (np.log(target_vals) - np.log(ref_vals)) / 5
+    fig_contrib, ax_contrib = plt.subplots()
+    ax_contrib.bar(contrib_keys, contrib, color=scenario_lookup[target_label].color)
+    ax_contrib.axhline(0, color="#999999", linewidth=1)
+    ax_contrib.set_ylabel("Δlog(v) contribution")
+    ax_contrib.set_title(f"{target_label} vs No system")
+    st.pyplot(fig_contrib)
+
 if research_mode:
     # -----------------------------
     # Research Progress Mode
     # -----------------------------
-    no_result = simulate(
-        NO_SYSTEM, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-    )
-    training_result = simulate(
-        TRAINING, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-    )
+    no_result = scenario_results["No system"]
+    training_result = scenario_results["Training system"]
     research_result = simulate_research_progress(
-        TRAINING,
-        TARGET,
+        training_params,
+        optimized_params,
         T,
         S0,
         v0,
@@ -183,7 +288,7 @@ if research_mode:
     df_research["year"] = df_research["week"] / 52
 
     # Build the year-by-year table for display (N/F/D/V/R + v + Smax_cap).
-    year_rows = build_year_table(range(research_years + 1), TRAINING, TARGET, k)
+    year_rows = build_year_table(range(research_years + 1), training_params, optimized_params, k)
     for row in year_rows:
         params = {key: row[key] for key in PARAM_KEYS}
         row["v(y)"] = v_from_params(params, v0=v0)
@@ -197,8 +302,8 @@ if research_mode:
     years_thr_research = None if w_thr_research is None else w_thr_research / 52
 
     # Additional reference points to explain threshold reach in a simple way.
-    year0_params = interpolate_params(0, TRAINING, TARGET, k)
-    yearN_params = interpolate_params(research_years, TRAINING, TARGET, k)
+    year0_params = interpolate_params(0, training_params, optimized_params, k)
+    yearN_params = interpolate_params(research_years, training_params, optimized_params, k)
     year0_reach = cohort_years_to_reach(year0_params)
     yearN_reach = cohort_years_to_reach(yearN_params)
 
@@ -296,15 +401,9 @@ else:
     # -----------------------------
     # Baseline Mode (No system / Training / Optimized)
     # -----------------------------
-    no_result = simulate(
-        NO_SYSTEM, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-    )
-    training_result = simulate(
-        TRAINING, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-    )
-    opt_result = simulate(
-        p, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-    )
+    no_result = scenario_results["No system"]
+    training_result = scenario_results["Training system"]
+    opt_result = scenario_results["Optimized"]
 
     df_no = pd.DataFrame(
         {"week": no_result.week, "S": no_result.S, "Smax": no_result.Smax, "U": no_result.U}
@@ -349,6 +448,28 @@ else:
         plt.ylabel("Skill S")
         plt.title("Skill curve S(t)")
         plt.legend()
+        ax = plt.gca()
+        if show_params_on_plot:
+            # Small end-of-line labels to reinforce "this curve = this system".
+            for scenario in scenarios:
+                label = (
+                    f"N={scenario.params['N']:.2f} "
+                    f"F={scenario.params['F']:.2f} "
+                    f"D={scenario.params['D']:.2f} "
+                    f"V={scenario.params['V']:.2f} "
+                    f"R={scenario.params['R']:.2f} | "
+                    f"v={scenario_results[scenario.name].v:.3f} | "
+                    f"Smax_cap={scenario_results[scenario.name].Smax_cap:.1f}"
+                )
+                ax.text(
+                    years * 0.98,
+                    scenario_results[scenario.name].S[-1],
+                    label,
+                    fontsize=7,
+                    ha="right",
+                    va="center",
+                    color=scenario.color,
+                )
         if fix_axes:
             plt.xlim(0, years)
             plt.ylim(0, 100)

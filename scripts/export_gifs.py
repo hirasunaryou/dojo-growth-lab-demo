@@ -31,12 +31,13 @@ from core.growth_model import (
     weeks_to_reach,
 )
 from core.roadmap import TRAIN_PARAMS, TARGET_PARAMS, interpolate_params
+from core.scenarios import NO_SYSTEM_PARAMS, build_scenarios
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-NO_SYSTEM = {"N": 0.25, "F": 0.15, "D": 0.20, "V": 0.10, "R": 0.15}
+NO_SYSTEM = NO_SYSTEM_PARAMS.copy()
 TRAINING = TRAIN_PARAMS.copy()
 OPTIMIZED = TARGET_PARAMS.copy()
 PRESETS = {
@@ -117,26 +118,13 @@ def render_frame(
     years = T / 52
     x_axis = np.arange(T + 1) / 52
 
-    if compare3:
-        no_result = simulate(
-            NO_SYSTEM, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
+    scenarios = build_scenarios(optimized_params=params)
+    results = {
+        scenario.name: simulate(
+            scenario.params, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
         )
-        training_result = simulate(
-            TRAINING, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-        )
-        opt_result = simulate(
-            params, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-        )
-        results = {
-            "No system": no_result,
-            "Training": training_result,
-            "Optimized": opt_result,
-        }
-    else:
-        result = simulate(
-            params, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier, gamma
-        )
-        results = {"Optimized": result}
+        for scenario in scenarios
+    }
 
     fig, (ax_skill, ax_smax) = plt.subplots(
         2,
@@ -147,9 +135,17 @@ def render_frame(
     )
 
     # Skill curve
-    colors = {"No system": "#7f7f7f", "Training": "#1f77b4", "Optimized": "#2ca02c"}
-    for label, result in results.items():
-        ax_skill.plot(x_axis, result.S, color=colors[label], label=label)
+    colors = {scenario.name: scenario.color for scenario in scenarios}
+    if compare3:
+        for label, result in results.items():
+            ax_skill.plot(x_axis, result.S, color=colors[label], label=label)
+    else:
+        ax_skill.plot(
+            x_axis,
+            results["Optimized"].S,
+            color=colors["Optimized"],
+            label="Optimized",
+        )
     ax_skill.axhline(threshold, linestyle="--", linewidth=1, color="#666666")
     ax_skill.set_xlim(0, years)
     ax_skill.set_ylim(0, 100)
@@ -159,8 +155,16 @@ def render_frame(
     ax_skill.legend(loc="lower right")
 
     # Ceiling curve
-    for label, result in results.items():
-        ax_smax.plot(x_axis, result.Smax, color=colors[label], label=f"{label} Smax")
+    if compare3:
+        for label, result in results.items():
+            ax_smax.plot(x_axis, result.Smax, color=colors[label], label=f"{label} Smax")
+    else:
+        ax_smax.plot(
+            x_axis,
+            results["Optimized"].Smax,
+            color=colors["Optimized"],
+            label="Optimized Smax",
+        )
     ax_smax.set_xlim(0, years)
     ax_smax.set_ylim(0, 100)
     ax_smax.set_xlabel("Year")
@@ -168,12 +172,14 @@ def render_frame(
 
     # Overlay metrics (PPT-friendly)
     info_lines = [f"{sweep_param}={params[sweep_param]:.2f}"]
-    for label, result in results.items():
+    for scenario in scenarios:
+        result = results[scenario.name]
         w_thr = weeks_to_reach(result.S, threshold)
         w_thr_label = f"{w_thr / 52:.1f}y" if w_thr is not None else "not reached"
         info_lines.append(
-            f"{label}: v={result.v:.3f}/week | "
-            f"S@end={result.S[-1]:.1f} | Smax@end={result.Smax[-1]:.1f} | "
+            f"{scenario.name}: N={scenario.params['N']:.2f} F={scenario.params['F']:.2f} "
+            f"D={scenario.params['D']:.2f} V={scenario.params['V']:.2f} "
+            f"R={scenario.params['R']:.2f} | v={result.v:.3f}/week | "
             f"Smax_cap={result.Smax_cap:.1f} | reach {threshold}: {w_thr_label}"
         )
     info = "\n".join(info_lines)
@@ -255,16 +261,22 @@ def render_research_continuous_frame(
     ax_smax.set_xlabel("Year")
     ax_smax.set_ylabel("Smax")
 
-    # Overlay current-year params + metrics.
+    # Overlay current-year params + metrics for all three scenarios.
     params = interpolate_params(year_value, TRAINING, OPTIMIZED, k)
-    v = v_from_params(params, v0=v0)
-    smax_cap = smax_cap_from_params(params, Smax_base, delta_Smax, gamma)
-    info = (
-        f"Year {year_value:.2f}\n"
-        f"N={params['N']:.2f} F={params['F']:.2f} D={params['D']:.2f} "
-        f"V={params['V']:.2f} R={params['R']:.2f}\n"
-        f"v={v:.3f}/week | Smax_cap={smax_cap:.1f}"
-    )
+    info_lines = [f"Year {year_value:.2f} (Research params)"]
+    for label, scenario_params in [
+        ("No system", NO_SYSTEM),
+        ("Training system", TRAINING),
+        ("Research (current)", params),
+    ]:
+        v = v_from_params(scenario_params, v0=v0)
+        smax_cap = smax_cap_from_params(scenario_params, Smax_base, delta_Smax, gamma)
+        info_lines.append(
+            f"{label}: N={scenario_params['N']:.2f} F={scenario_params['F']:.2f} "
+            f"D={scenario_params['D']:.2f} V={scenario_params['V']:.2f} "
+            f"R={scenario_params['R']:.2f} | v={v:.3f}/week | Smax_cap={smax_cap:.1f}"
+        )
+    info = "\n".join(info_lines)
     ax_skill.text(0.01, 0.98, info, transform=ax_skill.transAxes, va="top", fontsize=10)
 
     buffer = io.BytesIO()
@@ -310,14 +322,20 @@ def render_research_cohort_frame(
     ax.set_ylim(0, years_horizon)
 
     params = interpolate_params(year_value, TRAINING, OPTIMIZED, k)
-    v = v_from_params(params, v0=v0)
-    smax_cap = smax_cap_from_params(params, Smax_base, delta_Smax, gamma)
-    info = (
-        f"Year {year_value:.2f}\n"
-        f"N={params['N']:.2f} F={params['F']:.2f} D={params['D']:.2f} "
-        f"V={params['V']:.2f} R={params['R']:.2f}\n"
-        f"v={v:.3f}/week | Smax_cap={smax_cap:.1f}"
-    )
+    info_lines = [f"Year {year_value:.2f} (Research params)"]
+    for label, scenario_params in [
+        ("No system", NO_SYSTEM),
+        ("Training system", TRAINING),
+        ("Research (current)", params),
+    ]:
+        v = v_from_params(scenario_params, v0=v0)
+        smax_cap = smax_cap_from_params(scenario_params, Smax_base, delta_Smax, gamma)
+        info_lines.append(
+            f"{label}: N={scenario_params['N']:.2f} F={scenario_params['F']:.2f} "
+            f"D={scenario_params['D']:.2f} V={scenario_params['V']:.2f} "
+            f"R={scenario_params['R']:.2f} | v={v:.3f}/week | Smax_cap={smax_cap:.1f}"
+        )
+    info = "\n".join(info_lines)
     ax.text(0.01, 0.98, info, transform=ax.transAxes, va="top", fontsize=10)
 
     buffer = io.BytesIO()

@@ -8,13 +8,16 @@ from matplotlib.widgets import Slider, Button, CheckButtons
 
 from core.constants import PARAM_KEYS
 from core.growth_model import simulate, weeks_to_reach
+from core.scenarios import build_scenarios
 
 # -----------------------------
 # Defaults
 # -----------------------------
-no_system = {"N": 0.25, "F": 0.15, "D": 0.20, "V": 0.10, "R": 0.15}
-training = {"N": 0.40, "F": 0.40, "D": 0.35, "V": 0.30, "R": 0.35}
-optimized = {"N": 0.80, "F": 0.70, "D": 0.60, "V": 0.75, "R": 0.70}
+scenarios = build_scenarios()
+scenario_lookup = {scenario.name: scenario for scenario in scenarios}
+no_system = scenario_lookup["No system"].params
+training = scenario_lookup["Training system"].params
+optimized = scenario_lookup["Optimized"].params
 
 p = optimized.copy()   # start from Optimized defaults
 T = 520
