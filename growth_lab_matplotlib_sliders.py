@@ -3,46 +3,10 @@
 # Zero-dependency interactive sliders (Matplotlib widgets)
 # Run: python growth_lab_matplotlib_sliders.py
 
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Slider, Button, CheckButtons
 
-# -----------------------------
-# Core model
-# -----------------------------
-def v_from_params(p: dict, v0: float = 0.25) -> float:
-    prod = p["N"] * p["F"] * p["D"] * p["V"] * p["R"]
-    return v0 * (prod ** (1/5))
-
-def simulate(p: dict, T: int, S0: float, v0: float, Smax_base: float, delta_Smax: float,
-             Umax: float, u0: float, enable_frontier: bool):
-    weeks = np.arange(T + 1)
-    v = v_from_params(p, v0=v0)
-
-    S = np.zeros(T + 1)
-    U = np.zeros(T + 1)
-    Smax = np.zeros(T + 1)
-    S[0] = S0
-
-    for t in range(T + 1):
-        if enable_frontier and t > 0:
-            u_rate = u0 * (p["V"] * p["D"])
-            U[t] = U[t-1] + u_rate * (1 - U[t-1] / Umax)
-        else:
-            U[t] = 0.0
-
-        Smax[t] = Smax_base + (delta_Smax * (U[t] / Umax) if enable_frontier else 0.0)
-
-        if t < T:
-            S[t+1] = S[t] + v * (Smax[t] - S[t])
-
-    return weeks, S, Smax, U, v
-
-def weeks_to_reach(S, thr):
-    idx = np.argmax(S >= thr)
-    if S[idx] < thr:
-        return None
-    return int(idx)
+from core.growth_model import PARAM_KEYS, simulate, weeks_to_reach
 
 # -----------------------------
 # Defaults
@@ -79,14 +43,16 @@ for i, key in enumerate(["N", "F", "D", "V", "R"]):
 ax_btn_reset = plt.axes([0.12, 0.02, 0.18, 0.05])
 ax_btn_base  = plt.axes([0.34, 0.02, 0.18, 0.05])
 ax_btn_dojo  = plt.axes([0.56, 0.02, 0.18, 0.05])
+ax_btn_fix   = plt.axes([0.78, 0.02, 0.18, 0.05])
 
 # Initial sim
-w_b, S_b, Smax_b, U_b, v_b = simulate(baseline, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
-w,   S,   Smax,   U,   v   = simulate(p,       T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+base_result = simulate(baseline, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+cur_result = simulate(p, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+fix_axes = True
 
 # Plot lines
-line_base, = ax_skill.plot(w_b, S_b, label="Baseline (No AI)")
-line_cur,  = ax_skill.plot(w,   S,   label="Scenario (Sliders)")
+line_base, = ax_skill.plot(base_result.week, base_result.S, label="Baseline (No AI)")
+line_cur,  = ax_skill.plot(cur_result.week, cur_result.S, label="Scenario (Sliders)")
 thr_line = ax_skill.axhline(thr, linestyle="--", linewidth=1, label=f"Threshold {thr}")
 
 ax_skill.set_xlabel("Week")
@@ -94,40 +60,67 @@ ax_skill.set_ylabel("Skill S")
 ax_skill.set_title("DoJo Growth Lab — move sliders and see S(t)")
 ax_skill.legend(loc="lower right")
 ax_skill.set_ylim(0, 100)
+ax_skill.set_xlim(0, T)
 
-line_smax_base, = ax_smax.plot(w_b, Smax_b, label="Baseline Smax")
-line_smax_cur,  = ax_smax.plot(w,   Smax,   label="Scenario Smax")
+line_smax_base, = ax_smax.plot(base_result.week, base_result.Smax, label="Baseline Smax")
+line_smax_cur,  = ax_smax.plot(cur_result.week, cur_result.Smax, label="Scenario Smax")
 ax_smax.set_ylabel("Smax")
 ax_smax.set_yticks([])
+ax_smax.set_xlim(0, T)
+ax_smax.set_ylim(Smax_base, Smax_base + delta_Smax)
 
-# Text box for metrics
-text = ax_skill.text(0.02, 0.98, "", transform=ax_skill.transAxes, va="top")
+# Fixed formula text (top of figure)
+formula_text = (
+    "dS/dt = v × (Smax − S)\n"
+    "v = v0 × (N×F×D×V×R)^(1/5)\n"
+    "u_rate = u0 × (V×D),  U_t = U_{t-1} + u_rate × (1 − U_{t-1}/Umax),  "
+    "Smax(t) = Smax_base + ΔSmax × (U_t/Umax)"
+)
+fig.text(0.08, 0.97, formula_text, ha="left", va="top", fontsize=9)
+
+# Text box for dynamic metrics
+text = fig.text(0.08, 0.88, "", ha="left", va="top", fontsize=9)
 
 # Sliders
 sliders = {}
-for key in ["N", "F", "D", "V", "R"]:
+for key in PARAM_KEYS:
     sliders[key] = Slider(slider_axes[key], key, 0.0, 1.0, valinit=p[key], valstep=0.01)
 
 def update_metrics():
-    w_thr = weeks_to_reach(S, thr)
+    w_thr = weeks_to_reach(cur_result.S, thr)
+    w_thr_label = f"{w_thr}w" if w_thr is not None else "not reached"
     msg = (
-        f"v={v:.3f}/week | S@12w={S[min(12, len(S)-1)]:.1f} | S@26w={S[min(26, len(S)-1)]:.1f} | "
-        f"S@end={S[-1]:.1f} | Smax@end={Smax[-1]:.1f} | reach {thr}: {w_thr}w"
+        f"v={cur_result.v:.3f}/week | S@end={cur_result.S[-1]:.1f} | "
+        f"Smax@end={cur_result.Smax[-1]:.1f} | reach {thr}: {w_thr_label}"
     )
     text.set_text(msg)
 
-def on_change(val):
-    global w, S, Smax, U, v
-    for k in ["N", "F", "D", "V", "R"]:
-        p[k] = sliders[k].val
-    w, S, Smax, U, v = simulate(p, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+def apply_axis_mode():
+    # Toggle between fixed axes (comparison-friendly) and auto scaling.
+    if fix_axes:
+        ax_skill.set_xlim(0, T)
+        ax_skill.set_ylim(0, 100)
+        ax_smax.set_xlim(0, T)
+        ax_smax.set_ylim(Smax_base, Smax_base + delta_Smax)
+    else:
+        ax_skill.relim()
+        ax_skill.autoscale()
+        ax_smax.relim()
+        ax_smax.autoscale()
 
-    line_cur.set_xdata(w)
-    line_cur.set_ydata(S)
-    line_smax_cur.set_xdata(w)
-    line_smax_cur.set_ydata(Smax)
+def on_change(val):
+    global cur_result
+    for k in PARAM_KEYS:
+        p[k] = sliders[k].val
+    cur_result = simulate(p, T, S0, v0, Smax_base, delta_Smax, Umax, u0, enable_frontier)
+
+    line_cur.set_xdata(cur_result.week)
+    line_cur.set_ydata(cur_result.S)
+    line_smax_cur.set_xdata(cur_result.week)
+    line_smax_cur.set_ydata(cur_result.Smax)
 
     update_metrics()
+    apply_axis_mode()
     fig.canvas.draw_idle()
 
 for s in sliders.values():
@@ -137,18 +130,27 @@ for s in sliders.values():
 btn_reset = Button(ax_btn_reset, "Reset Sliders")
 btn_base  = Button(ax_btn_base, "Preset: Baseline")
 btn_dojo  = Button(ax_btn_dojo, "Preset: DoJo")
+btn_fix = CheckButtons(ax_btn_fix, ["Fix axes"], [fix_axes])
 
 def do_reset(event):
-    for k in ["N", "F", "D", "V", "R"]:
+    for k in PARAM_KEYS:
         sliders[k].reset()
 
 def set_preset(preset):
-    for k in ["N", "F", "D", "V", "R"]:
+    for k in PARAM_KEYS:
         sliders[k].set_val(preset[k])
+
+def toggle_fix(label):
+    global fix_axes
+    fix_axes = not fix_axes
+    apply_axis_mode()
+    fig.canvas.draw_idle()
 
 btn_reset.on_clicked(do_reset)
 btn_base.on_clicked(lambda e: set_preset(baseline))
 btn_dojo.on_clicked(lambda e: set_preset(dojo))
+btn_fix.on_clicked(toggle_fix)
 
 update_metrics()
+apply_axis_mode()
 plt.show()
