@@ -16,9 +16,21 @@ from __future__ import annotations
 import argparse
 import io
 import math
+import sys
 from pathlib import Path
 
-import imageio.v2 as imageio
+# Ensure the repo root is on sys.path so `python scripts/export_gifs.py` works anywhere.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    import imageio.v2 as imageio
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "imageio が見つかりません。次を実行してください: python -m pip install imageio Pillow"
+    ) from exc
+
 import matplotlib
 import numpy as np
 

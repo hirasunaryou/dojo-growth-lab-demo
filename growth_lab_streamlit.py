@@ -225,20 +225,40 @@ for _, row in scenario_table.iterrows():
     st.write(f"{row['Scenario']}: 改善優先候補 = {', '.join(min_params)}")
 
 # Contribution chart (optional but recommended): log-decomposed v uplift vs No system.
-st.subheader("v寄与の分解（No system 基準）")
+st.subheader("v寄与の分解（No system基準 / Training + Research uplift）")
+contrib_keys = list(PARAM_KEYS)
 ref_row = scenario_table.loc[scenario_table["Scenario"] == "No system"].iloc[0]
-for target_label in ["Training system", "Optimized"]:
-    target_row = scenario_table.loc[scenario_table["Scenario"] == target_label].iloc[0]
-    contrib_keys = ["N", "F", "D", "V", "R"]
-    ref_vals = np.clip(ref_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
-    target_vals = np.clip(target_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
-    contrib = (np.log(target_vals) - np.log(ref_vals)) / 5
-    fig_contrib, ax_contrib = plt.subplots()
-    ax_contrib.bar(contrib_keys, contrib, color=scenario_lookup[target_label].color)
-    ax_contrib.axhline(0, color="#999999", linewidth=1)
-    ax_contrib.set_ylabel("Δlog(v) contribution")
-    ax_contrib.set_title(f"{target_label} vs No system")
-    st.pyplot(fig_contrib)
+training_row = scenario_table.loc[scenario_table["Scenario"] == "Training system"].iloc[0]
+optimized_row = scenario_table.loc[scenario_table["Scenario"] == "Optimized"].iloc[0]
+
+# Use a small clip to avoid log(0) and keep the uplift math stable.
+ref_vals = np.clip(ref_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
+training_vals = np.clip(training_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
+optimized_vals = np.clip(optimized_row[contrib_keys].to_numpy(dtype=float), 1e-6, None)
+
+# v = v0 * (N*F*D*V*R)^(1/5) -> Δlog(v) is the sum of per-parameter log-diffs / 5.
+c_train = (np.log(training_vals) - np.log(ref_vals)) / 5
+c_extra = (np.log(optimized_vals) - np.log(training_vals)) / 5
+
+fig_contrib, ax_contrib = plt.subplots()
+ax_contrib.bar(
+    contrib_keys,
+    c_train,
+    color=scenario_lookup["Training system"].color,
+    label="Training uplift",
+)
+ax_contrib.bar(
+    contrib_keys,
+    c_extra,
+    bottom=c_train,
+    color=scenario_lookup["Optimized"].color,
+    label="Extra uplift (Optimized-Training)",
+)
+ax_contrib.axhline(0, color="#999999", linewidth=1)
+ax_contrib.set_ylabel("Δlog(v) contribution")
+ax_contrib.set_title("v寄与の分解（No system基準 / Training + Research uplift）")
+ax_contrib.legend()
+st.pyplot(fig_contrib)
 
 if research_mode:
     # -----------------------------
