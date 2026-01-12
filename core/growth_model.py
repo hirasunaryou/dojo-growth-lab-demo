@@ -22,6 +22,8 @@ class SimulationResult:
     Smax: np.ndarray
     U: np.ndarray
     v: float
+    frontier_strength: float
+    Smax_cap: float
 
 
 def v_from_params(params: dict[str, float], v0: float = 0.25) -> float:
@@ -44,12 +46,17 @@ def simulate(
     Umax: float,
     u0: float,
     enable_frontier: bool,
+    gamma: float = 0.5,
 ) -> SimulationResult:
     """
     Simulate the growth curve and frontier unlock over discrete weeks.
+    gamma controls how strongly V×D expands the theoretical ceiling (Smax_cap).
     """
     weeks = np.arange(T + 1)
     v = v_from_params(params, v0=v0)
+    # Frontier strength is the "ceiling amplifier" driven by V×D.
+    frontier_strength = (params["V"] * params["D"]) ** gamma
+    Smax_cap = Smax_base + delta_Smax * frontier_strength
 
     S = np.zeros(T + 1)
     U = np.zeros(T + 1)
@@ -62,18 +69,29 @@ def simulate(
             u_rate = u0 * (params["V"] * params["D"])
             U[t] = U[t - 1] + u_rate * (1 - U[t - 1] / Umax)
         else:
+            # When frontier is off, unlock stays at 0 (ceiling stays fixed).
             U[t] = 0.0
 
         if enable_frontier:
-            Smax[t] = Smax_base + delta_Smax * (U[t] / Umax)
+            # V×D affects the theoretical ceiling; U(t) determines how much is unlocked.
+            Smax[t] = Smax_base + delta_Smax * frontier_strength * (U[t] / Umax)
         else:
-            Smax[t] = 0.0
+            # Frontier OFF means ceiling is fixed at the base value.
+            Smax[t] = Smax_base
 
         # Skill update (discrete-time form)
         if t < T:
             S[t + 1] = S[t] + v * (Smax[t] - S[t])
 
-    return SimulationResult(week=weeks, S=S, Smax=Smax, U=U, v=v)
+    return SimulationResult(
+        week=weeks,
+        S=S,
+        Smax=Smax,
+        U=U,
+        v=v,
+        frontier_strength=frontier_strength,
+        Smax_cap=Smax_cap,
+    )
 
 
 def weeks_to_reach(S_series: np.ndarray, threshold: float) -> int | None:

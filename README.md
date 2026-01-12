@@ -2,6 +2,8 @@
 
 N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを、可視化で理解するためのデモです。
 数式と意味を固定で表示し、**非エンジニアにも説明できる**ことを目的にしています。
+比較は「何もしない（No system）→ 訓練導入（Training）→ DoJo最適化（Optimized）」の
+3本線で示し、**10年スケール（520週）**でゆっくりした成長の差を見せる設計です。
 
 ## モデルの概要（数式）
 **成長モデル**
@@ -13,7 +15,8 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
 
 - u_rate = u0 × (V×D)
 - U_t = U_{t-1} + u_rate × (1 − U_{t-1}/Umax)
-- Smax(t) = Smax_base + ΔSmax × (U_t/Umax)
+- Smax(t) = Smax_base + ΔSmax × (V×D)^gamma × (U_t/Umax)
+- Smax_cap = Smax_base + ΔSmax × (V×D)^gamma（理論上限）
 
 ## 各パラメータの日本語定義
 **N（試行回数 / Trials）**
@@ -71,11 +74,15 @@ N-F-D-V-R を動かすと「成長の速度・上限」がどう変わるかを�
    ```
 2) Generate a single sweep:
    ```bash
-   python scripts/export_gifs.py --preset dojo --param N --min 0.2 --max 0.9 --frames 30 --fps 10 --out out/gifs
+   python scripts/export_gifs.py --preset optimized --param N --min 0.2 --max 0.9 --frames 30 --fps 10 --out out/gifs
    ```
 3) Generate all parameters at once:
    ```bash
-   python scripts/export_gifs.py --all --preset dojo --frames 30 --fps 10 --out out/gifs
+   python scripts/export_gifs.py --all --preset optimized --frames 30 --fps 10 --out out/gifs
+   ```
+4) Compare 3 lines (No system / Training / Optimized) in one GIF:
+   ```bash
+   python scripts/export_gifs.py --compare3 --preset optimized --param V --frames 30 --fps 10 --out out/gifs
    ```
 
 ## Notes
